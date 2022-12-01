@@ -1,0 +1,1429 @@
+---
+title: "Random Forest variable selection"
+author: "Trish"
+date: "09/06/2021"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+```
+Step 1: Twenty-five random forests, each consisting of 10,000 trees were estimated and the average variable importance and AUC across the 25 forests were calculated. This was performed on the HPC (code in RF_25 iterations.R). Output 1 corresponds to mtry=3, output 2 corresponds to mtry = 6 and output 3 corresponds to mtry = 16.
+
+```{r}
+importance1<-readRDS("importance_all-1.rds")
+importance2<-readRDS("importance_all-2.rds")
+importance3<-readRDS("importance_all-3.rds")
+
+OOBerror1<-readRDS("OOB_error_total-1.rds")
+OOBerror2<-readRDS("OOB_error_total-2.rds")
+OOBerror3<-readRDS("OOB_error_total-3.rds")
+
+predict1<-readRDS("results_all-1.rds")
+predict2<-readRDS("results_all-2.rds")
+predict3<-readRDS("results_all-3.rds")
+```
+
+Step 2:
+The predictors were ranked according to their average variable importance and predictors with negative variable importance were removed
+
+mean variable importance over 25 runs - mtry =3
+```{r}
+importance1<-as.data.frame(importance1)
+importance1<-mutate(importance1, mean_imp = rowMeans(importance1))
+
+
+```
+
+mean OOB error over 25 runs - mtry =3
+```{r}
+OOB_error1<- as.data.frame(OOBerror1)
+OOB_error1<-mutate(OOB_error1, mean_OOB = rowMeans(OOB_error1))
+```
+mean OOB error = 0.14
+
+mean prediction over 25 runs
+
+```{r}
+predict1<-as.data.frame(predict1)
+predict1<-mutate(predict1, mean_pred = rowMeans(predict1))
+
+mean_predict1<-predict1$mean_pred
+
+
+```
+
+```{r}
+random_forest_data<-read.csv("random_forest_data.csv")
+```
+
+
+Set up k-fold stratified cross validation
+```{r}
+# Get stratified cross-validation fold indices
+folds <- readRDS("folds.RDS")
+```
+
+get the truth from the validation data sets
+```{r}
+truth<-list()
+
+for(i in 1:10){
+  #remove subject to validate
+  fold<-folds[[i]]
+  validation_data <- random_forest_data[-fold, which(names(random_forest_data) == "Pop_B")]
+  validation_data<-as.vector(as.numeric(validation_data))
+  truth[[i]] <- validation_data
+  }
+  
+```
+
+
+calculate AUC for mean predictions mtry = 3
+```{r}
+truth<-unlist(truth)
+
+results_roc<-cbind(truth, mean_predict1 )
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_all1 <- roc(results_roc$truth,results_roc$mean_predict1,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+AUC of full model =0.797(0.777, 0.818)
+
+remove variables with negative importance mtry 3
+```{r}
+colnames(random_forest_data)
+#remove negative importance
+random_forest_data_mtry3<-select(random_forest_data, -paed_sepsis_indicator___9, -paed_sepsis_indicator___1, -moderate_illness_feature___5, -pead_sepsis_factors___5, -pead_sepsis_factors___3, -moderate_illness_feature___9)
+
+#put in order of importance - most important to least important
+random_forest_data_mtry3<-select(random_forest_data_mtry3, severe_illness_feature___5, pead_sepsis_factors___1, severe_illness_feature___6, severe_illness_feature___8, paed_sepsis_indicator___6, moderate_illness_feature___7, paed_sepsis_indicator___4, pead_sepsis_factors___4, severe_illness_feature___3, severe_illness_feature___2, severe_illness_feature___1, paed_sepsis_indicator___5, pead_sepsis_factors___6, severe_illness_feature___7, pead_sepsis_factors___2, paed_sepsis_indicator___2, moderate_illness_feature___4, paed_sepsis_indicator___8, severe_illness_feature___4, moderate_illness_feature___1, moderate_illness_feature___2, paed_sepsis_indicator___3, moderate_illness_feature___3, paed_sepsis_indicator___7, moderate_illness_feature___6, moderate_illness_feature___8, Pop_B)
+
+write_csv(random_forest_data_mtry3, "random_forest_data_mtry3.csv")
+
+start = 1
+stop = 7
+
+random_forest_sub_check<-select(random_forest_data_mtry3, start:stop, Pop_B)
+```
+
+Step 3: using the remaining variables we constructed  k=p-(mtry-1) random forest models, each containing 10,000 trees, where model 1 was built using the mtry number of most important features, model 2 contained mtry +1 most important features etc. until model k  which contained all p predictors, where p is the total number of variables under consideration. These were performed on the HPC (code in RF_varselect_mtry3.R), same code was used with relevant ammendments for mtry=6 and mtry=16.Output of models is processed below.
+
+Step 4:the AUC from each submodel was comapred to the AUC of the full model containing all predictors. The final model was selected as the model that was the most parsimonious with no significant difference in AUC to the full model with all predictors.
+
+
+read in output of iterative models mtry 3 
+```{r}
+OOB_error1<-readRDS("OOB_error1-1.rds")
+OOB_error2<-readRDS("OOB_error1-2.rds")
+OOB_error3<-readRDS("OOB_error1-3.rds")
+OOB_error4<-readRDS("OOB_error1-4.rds")
+OOB_error5<-readRDS("OOB_error1-5.rds")
+OOB_error6<-readRDS("OOB_error1-6.rds")
+OOB_error7<-readRDS("OOB_error1-7.rds")
+OOB_error8<-readRDS("OOB_error1-8.rds")
+OOB_error9<-readRDS("OOB_error1-9.rds")
+OOB_error10<-readRDS("OOB_error1-10.rds")
+OOB_error11<-readRDS("OOB_error1-11.rds")
+OOB_error12<-readRDS("OOB_error1-12.rds")
+OOB_error13<-readRDS("OOB_error1-13.rds")
+OOB_error14<-readRDS("OOB_error1-14.rds")
+OOB_error15<-readRDS("OOB_error1-15.rds")
+OOB_error16<-readRDS("OOB_error1-16.rds")
+OOB_error17<-readRDS("OOB_error1-17.rds")
+OOB_error18<-readRDS("OOB_error1-18.rds")
+OOB_error19<-readRDS("OOB_error1-19.rds")
+OOB_error20<-readRDS("OOB_error1-20.rds")
+OOB_error21<-readRDS("OOB_error1-21.rds")
+OOB_error22<-readRDS("OOB_error1-22.rds")
+OOB_error23<-readRDS("OOB_error1-23.rds")
+OOB_error24<-readRDS("OOB_error1-24.rds")
+
+
+
+check<-readRDS("results_rf1-1.rds")
+```
+
+```{r}
+OOB_error1<-unlist(OOB_error1)
+mean(OOB_error1)
+
+OOB_error2<-unlist(OOB_error2)
+mean(OOB_error2)
+
+OOB_error3<-unlist(OOB_error3)
+mean(OOB_error3)
+
+OOB_error4<-unlist(OOB_error4)
+mean(OOB_error4)
+
+OOB_error5<-unlist(OOB_error5)
+mean(OOB_error5)
+
+OOB_error6<-unlist(OOB_error6)
+mean(OOB_error6)
+
+OOB_error7<-unlist(OOB_error7)
+mean(OOB_error7)
+
+OOB_error8<-unlist(OOB_error8)
+mean(OOB_error8)
+
+OOB_error9<-unlist(OOB_error9)
+mean(OOB_error9)
+
+OOB_error10<-unlist(OOB_error10)
+mean(OOB_error10)
+
+OOB_error11<-unlist(OOB_error11)
+mean(OOB_error11)
+
+OOB_error12<-unlist(OOB_error12)
+mean(OOB_error12)
+
+OOB_error13<-unlist(OOB_error13)
+mean(OOB_error13)
+
+OOB_error14<-unlist(OOB_error14)
+mean(OOB_error14)
+
+OOB_error15<-unlist(OOB_error15)
+mean(OOB_error15)
+
+OOB_error16<-unlist(OOB_error16)
+mean(OOB_error16)
+
+OOB_error17<-unlist(OOB_error17)
+mean(OOB_error17)
+
+OOB_error18<-unlist(OOB_error18)
+mean(OOB_error18)
+
+OOB_error19<-unlist(OOB_error19)
+mean(OOB_error19)
+
+OOB_error20<-unlist(OOB_error20)
+mean(OOB_error20)
+
+OOB_error21<-unlist(OOB_error21)
+mean(OOB_error21)
+
+OOB_error22<-unlist(OOB_error22)
+mean(OOB_error22)
+
+OOB_error23<-unlist(OOB_error23)
+mean(OOB_error23)
+
+OOB_error24<-unlist(OOB_error24)
+mean(OOB_error24)
+```
+```{r}
+
+results_rf1<-readRDS("results_rf1-1.rds")
+results_rf2<-readRDS("results_rf1-2.rds")
+results_rf3<-readRDS("results_rf1-3.rds")
+results_rf4<-readRDS("results_rf1-4.rds")
+results_rf5<-readRDS("results_rf1-5.rds")
+results_rf6<-readRDS("results_rf1-6.rds")
+results_rf7<-readRDS("results_rf1-7.rds")
+results_rf8<-readRDS("results_rf1-8.rds")
+results_rf9<-readRDS("results_rf1-9.rds")
+results_rf10<-readRDS("results_rf1-10.rds")
+results_rf11<-readRDS("results_rf1-11.rds")
+results_rf12<-readRDS("results_rf1-12.rds")
+results_rf13<-readRDS("results_rf1-13.rds")
+results_rf14<-readRDS("results_rf1-14.rds")
+results_rf15<-readRDS("results_rf1-15.rds")
+results_rf16<-readRDS("results_rf1-16.rds")
+results_rf17<-readRDS("results_rf1-17.rds")
+results_rf18<-readRDS("results_rf1-18.rds")
+results_rf19<-readRDS("results_rf1-19.rds")
+results_rf20<-readRDS("results_rf1-20.rds")
+results_rf21<-readRDS("results_rf1-21.rds")
+results_rf22<-readRDS("results_rf1-22.rds")
+results_rf23<-readRDS("results_rf1-23.rds")
+results_rf24<-readRDS("results_rf1-24.rds")
+
+```
+
+
+```{r}
+results_rf1<-unlist(results_rf1)
+results_roc<-cbind(truth, results_rf1)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF1 <- roc(results_roc$truth,results_roc$results_rf1,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+
+```{r}
+library(pROC)
+roc.test(roc_result_all1, roc_result_RF24)
+```
+
+
+
+```{r}
+results_rf2<-unlist(results_rf2)
+results_roc<-cbind(truth, results_rf2)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF2 <- roc(results_roc$truth,results_roc$results_rf2,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+```{r}
+results_rf3<-unlist(results_rf3)
+results_roc<-cbind(truth, results_rf3)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF3 <- roc(results_roc$truth,results_roc$results_rf3,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+
+```{r}
+results_rf4<-unlist(results_rf4)
+results_roc<-cbind(truth, results_rf4)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF4 <- roc(results_roc$truth,results_roc$results_rf4,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+
+
+```{r}
+results_rf5<-unlist(results_rf5)
+results_roc<-cbind(truth, results_rf5)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF5 <- roc(results_roc$truth,results_roc$results_rf5,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+```{r}
+results_rf6<-unlist(results_rf6)
+results_roc<-cbind(truth, results_rf6)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF6 <- roc(results_roc$truth,results_roc$results_rf6,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+```{r}
+results_rf7<-unlist(results_rf7)
+results_roc<-cbind(truth, results_rf7)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF7 <- roc(results_roc$truth,results_roc$results_rf7,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+```{r}
+results_rf8<-unlist(results_rf8)
+results_roc<-cbind(truth, results_rf8)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF8 <- roc(results_roc$truth,results_roc$results_rf8,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+```{r}
+results_rf9<-unlist(results_rf9)
+results_roc<-cbind(truth, results_rf9)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF9 <- roc(results_roc$truth,results_roc$results_rf9,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+
+
+```{r}
+results_rf10<-unlist(results_rf10)
+results_roc<-cbind(truth, results_rf10)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF10 <- roc(results_roc$truth,results_roc$results_rf10,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+```{r}
+results_rf11<-unlist(results_rf11)
+results_roc<-cbind(truth, results_rf11)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF11 <- roc(results_roc$truth,results_roc$results_rf11,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+```{r}
+results_rf12<-unlist(results_rf12)
+results_roc<-cbind(truth, results_rf12)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF12 <- roc(results_roc$truth,results_roc$results_rf12,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+```{r}
+results_rf13<-unlist(results_rf13)
+results_roc<-cbind(truth, results_rf13)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF13 <- roc(results_roc$truth,results_roc$results_rf13,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+```{r}
+results_rf14<-unlist(results_rf14)
+results_roc<-cbind(truth, results_rf14)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF14 <- roc(results_roc$truth,results_roc$results_rf14,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+ 
+```{r}
+results_rf15<-unlist(results_rf15)
+results_roc<-cbind(truth, results_rf15)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF15 <- roc(results_roc$truth,results_roc$results_rf15,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+```{r}
+results_rf16<-unlist(results_rf16)
+results_roc<-cbind(truth, results_rf16)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF16 <- roc(results_roc$truth,results_roc$results_rf16,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+ 
+```{r}
+results_rf17<-unlist(results_rf17)
+results_roc<-cbind(truth, results_rf17)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF17 <- roc(results_roc$truth,results_roc$results_rf17,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+``` 
+ 
+```{r}
+results_rf18<-unlist(results_rf18)
+results_roc<-cbind(truth, results_rf18)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF18 <- roc(results_roc$truth,results_roc$results_rf18,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+``` 
+ 
+```{r}
+results_rf19<-unlist(results_rf19)
+results_roc<-cbind(truth, results_rf19)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF19 <- roc(results_roc$truth,results_roc$results_rf19,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+```{r}
+results_rf20<-unlist(results_rf20)
+results_roc<-cbind(truth, results_rf20)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF20 <- roc(results_roc$truth,results_roc$results_rf20,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+```{r}
+results_rf21<-unlist(results_rf21)
+results_roc<-cbind(truth, results_rf21)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF21 <- roc(results_roc$truth,results_roc$results_rf21,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+```{r}
+results_rf22<-unlist(results_rf22)
+results_roc<-cbind(truth, results_rf22)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF22 <- roc(results_roc$truth,results_roc$results_rf22,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+
+```{r}
+results_rf23<-unlist(results_rf23)
+results_roc<-cbind(truth, results_rf23)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF23 <- roc(results_roc$truth,results_roc$results_rf23,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+```{r}
+results_rf24<-unlist(results_rf24)
+results_roc<-cbind(truth, results_rf24)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF24 <- roc(results_roc$truth,results_roc$results_rf24,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+
+
+Repeat steps for mtry=6 and mtry =16
+
+variable importance over 25 runs - mtry =6
+```{r}
+importance2<-as.data.frame(importance2)
+importance2<-mutate(importance2, mean_imp = rowMeans(importance2))
+
+
+```
+
+mean OOB error over 25 runs - mtry =6
+```{r}
+OOB_error2<- as.data.frame(OOBerror2)
+OOB_error2<-mutate(OOB_error2, mean_OOB = rowMeans(OOB_error2))
+```
+mean OOB error = 0.14
+
+mean prediction over 25 runs
+
+```{r}
+predict2<-as.data.frame(predict2)
+predict2<-mutate(predict2, mean_pred = rowMeans(predict2))
+
+mean_predict2<-predict2$mean_pred
+
+
+```
+
+```{r}
+random_forest_data<-read.csv("random_forest_data.csv")
+```
+
+
+Set up k-fold stratified cross validation
+```{r}
+# Get stratified cross-validation fold indices
+folds <- readRDS("folds.RDS")
+```
+
+get the truth from the validation data sets
+```{r}
+truth<-list()
+
+for(i in 1:10){
+  #remove subject to validate
+  fold<-folds[[i]]
+  validation_data <- random_forest_data[-fold, which(names(random_forest_data) == "Pop_B")]
+  validation_data<-as.vector(as.numeric(validation_data))
+  truth[[i]] <- validation_data
+  }
+  
+```
+
+
+calculate AUC for mean predictions mtry = 6
+```{r}
+truth<-unlist(truth)
+
+results_roc<-cbind(truth, mean_predict2 )
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF2_all <- roc(results_roc$truth,results_roc$mean_predict2,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+
+When mtry = 6, AUC = 0.791(0.770, 0.811)
+
+remove variables with negative importance mtry 6
+```{r}
+colnames(random_forest_data)
+random_forest_data_mtry6<-select(random_forest_data, -pead_sepsis_factors___5, -moderate_illness_feature___5 ,  -pead_sepsis_factors___3, -paed_sepsis_indicator___1, -paed_sepsis_indicator___9, -moderate_illness_feature___9)
+
+random_forest_data_mtry6<-select(random_forest_data_mtry6, severe_illness_feature___5, pead_sepsis_factors___1, severe_illness_feature___6, moderate_illness_feature___7,  paed_sepsis_indicator___6, severe_illness_feature___8,  pead_sepsis_factors___4,  paed_sepsis_indicator___4,  severe_illness_feature___3,  moderate_illness_feature___4, pead_sepsis_factors___6, severe_illness_feature___1, severe_illness_feature___2,  paed_sepsis_indicator___5,  severe_illness_feature___7, paed_sepsis_indicator___2,  paed_sepsis_indicator___8, pead_sepsis_factors___2, moderate_illness_feature___2, moderate_illness_feature___1, moderate_illness_feature___3, severe_illness_feature___4, paed_sepsis_indicator___7, paed_sepsis_indicator___3,   moderate_illness_feature___6, moderate_illness_feature___8, Pop_B)
+
+write_csv(random_forest_data_mtry6, "random_forest_data_mtry6.csv")
+
+
+
+random_forest_sub_check<-select(random_forest_data_mtry6, start:stop, Pop_B)
+```
+
+
+read in output of iterative models mtry 6
+```{r}
+OOB_error1<-readRDS("OOB_error2-1.rds")
+OOB_error2<-readRDS("OOB_error2-2.rds")
+OOB_error3<-readRDS("OOB_error2-3.rds")
+OOB_error4<-readRDS("OOB_error2-4.rds")
+OOB_error5<-readRDS("OOB_error1-5.rds")
+OOB_error6<-readRDS("OOB_error2-6.rds")
+OOB_error7<-readRDS("OOB_error2-7.rds")
+OOB_error8<-readRDS("OOB_error2-8.rds")
+OOB_error9<-readRDS("OOB_error2-9.rds")
+OOB_error10<-readRDS("OOB_error2-10.rds")
+OOB_error11<-readRDS("OOB_error2-11.rds")
+OOB_error12<-readRDS("OOB_error2-12.rds")
+OOB_error13<-readRDS("OOB_error2-13.rds")
+OOB_error14<-readRDS("OOB_error2-14.rds")
+OOB_error15<-readRDS("OOB_error2-15.rds")
+OOB_error16<-readRDS("OOB_error2-16.rds")
+OOB_error17<-readRDS("OOB_error2-17.rds")
+OOB_error18<-readRDS("OOB_error2-18.rds")
+OOB_error19<-readRDS("OOB_error2-19.rds")
+OOB_error20<-readRDS("OOB_error2-20.rds")
+OOB_error21<-readRDS("OOB_error2-21.rds")
+
+
+
+
+```
+
+```{r}
+OOB_error1<-unlist(OOB_error1)
+mean(OOB_error1)
+
+OOB_error2<-unlist(OOB_error2)
+mean(OOB_error2)
+
+OOB_error3<-unlist(OOB_error3)
+mean(OOB_error3)
+
+OOB_error4<-unlist(OOB_error4)
+mean(OOB_error4)
+
+OOB_error5<-unlist(OOB_error5)
+mean(OOB_error5)
+
+OOB_error6<-unlist(OOB_error6)
+mean(OOB_error6)
+
+OOB_error7<-unlist(OOB_error7)
+mean(OOB_error7)
+
+OOB_error8<-unlist(OOB_error8)
+mean(OOB_error8)
+
+OOB_error9<-unlist(OOB_error9)
+mean(OOB_error9)
+
+OOB_error10<-unlist(OOB_error10)
+mean(OOB_error10)
+
+OOB_error11<-unlist(OOB_error11)
+mean(OOB_error11)
+
+OOB_error12<-unlist(OOB_error12)
+mean(OOB_error12)
+
+OOB_error13<-unlist(OOB_error13)
+mean(OOB_error13)
+
+OOB_error14<-unlist(OOB_error14)
+mean(OOB_error14)
+
+OOB_error15<-unlist(OOB_error15)
+mean(OOB_error15)
+
+OOB_error16<-unlist(OOB_error16)
+mean(OOB_error16)
+
+OOB_error17<-unlist(OOB_error17)
+mean(OOB_error17)
+
+OOB_error18<-unlist(OOB_error18)
+mean(OOB_error18)
+
+OOB_error19<-unlist(OOB_error19)
+mean(OOB_error19)
+
+OOB_error20<-unlist(OOB_error20)
+mean(OOB_error20)
+
+OOB_error21<-unlist(OOB_error21)
+mean(OOB_error21)
+
+
+```
+```{r}
+
+results_rf1<-readRDS("results_rf2-1.rds")
+results_rf2<-readRDS("results_rf2-2.rds")
+results_rf3<-readRDS("results_rf2-3.rds")
+results_rf4<-readRDS("results_rf2-4.rds")
+results_rf5<-readRDS("results_rf2-5.rds")
+results_rf6<-readRDS("results_rf2-6.rds")
+results_rf7<-readRDS("results_rf2-7.rds")
+results_rf8<-readRDS("results_rf2-8.rds")
+results_rf9<-readRDS("results_rf2-9.rds")
+results_rf10<-readRDS("results_rf2-10.rds")
+results_rf11<-readRDS("results_rf2-11.rds")
+results_rf12<-readRDS("results_rf2-12.rds")
+results_rf13<-readRDS("results_rf2-13.rds")
+results_rf14<-readRDS("results_rf2-14.rds")
+results_rf15<-readRDS("results_rf2-15.rds")
+results_rf16<-readRDS("results_rf2-16.rds")
+results_rf17<-readRDS("results_rf2-17.rds")
+results_rf18<-readRDS("results_rf2-18.rds")
+results_rf19<-readRDS("results_rf2-19.rds")
+results_rf20<-readRDS("results_rf2-20.rds")
+results_rf21<-readRDS("results_rf2-21.rds")
+
+```
+
+```{r}
+results_rf1<-unlist(results_rf1)
+results_roc<-cbind(truth, results_rf1)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF1 <- roc(results_roc$truth,results_roc$results_rf1,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+
+```{r}
+results_rf2<-unlist(results_rf2)
+results_roc<-cbind(truth, results_rf2)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF2 <- roc(results_roc$truth,results_roc$results_rf2,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+
+```{r}
+results_rf3<-unlist(results_rf3)
+results_roc<-cbind(truth, results_rf3)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF3 <- roc(results_roc$truth,results_roc$results_rf3,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+
+```{r}
+results_rf4<-unlist(results_rf4)
+results_roc<-cbind(truth, results_rf4)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF4 <- roc(results_roc$truth,results_roc$results_rf4,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+```{r}
+results_rf5<-unlist(results_rf5)
+results_roc<-cbind(truth, results_rf5)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF5 <- roc(results_roc$truth,results_roc$results_rf5,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+```{r}
+results_rf6<-unlist(results_rf6)
+results_roc<-cbind(truth, results_rf6)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF6 <- roc(results_roc$truth,results_roc$results_rf6,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+```{r}
+results_rf7<-unlist(results_rf7)
+results_roc<-cbind(truth, results_rf7)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF7 <- roc(results_roc$truth,results_roc$results_rf7,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+
+```{r}
+results_rf8<-unlist(results_rf8)
+results_roc<-cbind(truth, results_rf8)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF8 <- roc(results_roc$truth,results_roc$results_rf8,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+
+
+```{r}
+results_rf9<-unlist(results_rf9)
+results_roc<-cbind(truth, results_rf9)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF9 <- roc(results_roc$truth,results_roc$results_rf9,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+```{r}
+results_rf10<-unlist(results_rf10)
+results_roc<-cbind(truth, results_rf10)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF10 <- roc(results_roc$truth,results_roc$results_rf10,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+
+```{r}
+results_rf11<-unlist(results_rf11)
+results_roc<-cbind(truth, results_rf11)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF11 <- roc(results_roc$truth,results_roc$results_rf11,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+
+```{r}
+results_rf12<-unlist(results_rf12)
+results_roc<-cbind(truth, results_rf12)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF12 <- roc(results_roc$truth,results_roc$results_rf12,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+
+```{r}
+results_rf13<-unlist(results_rf13)
+results_roc<-cbind(truth, results_rf13)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF13 <- roc(results_roc$truth,results_roc$results_rf13,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+
+```{r}
+results_rf14<-unlist(results_rf14)
+results_roc<-cbind(truth, results_rf14)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF14 <- roc(results_roc$truth,results_roc$results_rf14,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+
+
+```{r}
+results_rf15<-unlist(results_rf15)
+results_roc<-cbind(truth, results_rf15)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF15 <- roc(results_roc$truth,results_roc$results_rf15,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+
+```{r}
+results_rf16<-unlist(results_rf16)
+results_roc<-cbind(truth, results_rf16)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF16 <- roc(results_roc$truth,results_roc$results_rf16,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+```{r}
+results_rf17<-unlist(results_rf17)
+results_roc<-cbind(truth, results_rf17)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF17 <- roc(results_roc$truth,results_roc$results_rf17,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+```{r}
+results_rf18<-unlist(results_rf18)
+results_roc<-cbind(truth, results_rf18)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF18 <- roc(results_roc$truth,results_roc$results_rf18,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+```{r}
+results_rf19<-unlist(results_rf19)
+results_roc<-cbind(truth, results_rf19)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF19 <- roc(results_roc$truth,results_roc$results_rf19,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+
+```{r}
+results_rf20<-unlist(results_rf20)
+results_roc<-cbind(truth, results_rf20)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF20 <- roc(results_roc$truth,results_roc$results_rf20,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+```{r}
+results_rf21<-unlist(results_rf21)
+results_roc<-cbind(truth, results_rf21)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF21 <- roc(results_roc$truth,results_roc$results_rf21,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+
+
+```{r}
+library(pROC)
+roc.test(roc_result_RF2_all, roc_result_RF21)
+```
+
+
+
+mean variable importance over 25 runs - mtry =16
+```{r}
+importance3<-as.data.frame(importance3)
+importance3<-mutate(importance3, mean_imp = rowMeans(importance3))
+
+
+```
+
+mean OOB error over 25 runs - mtry =16
+```{r}
+OOB_error3<- as.data.frame(OOBerror3)
+OOB_error3<-mutate(OOB_error3, mean_OOB = rowMeans(OOB_error3))
+```
+mean OOB error = 0.16
+
+mean prediction over 25 runs
+
+```{r}
+predict3<-as.data.frame(predict3)
+predict3<-mutate(predict3, mean_pred = rowMeans(predict3))
+
+mean_predict3<-predict3$mean_pred
+
+
+```
+
+```{r}
+random_forest_data<-read.csv("random_forest_data.csv")
+```
+
+
+Set up k-fold stratified cross validation
+```{r}
+# Get stratified cross-validation fold indices
+folds <- readRDS("folds.RDS")
+```
+
+get the truth from the validation data sets
+```{r}
+truth<-list()
+
+for(i in 1:10){
+  #remove subject to validate
+  fold<-folds[[i]]
+  validation_data <- random_forest_data[-fold, which(names(random_forest_data) == "Pop_B")]
+  validation_data<-as.vector(as.numeric(validation_data))
+  truth[[i]] <- validation_data
+  }
+  
+```
+
+
+calculate AUC for mean predictions mtry = 16
+```{r}
+truth<-unlist(truth)
+
+results_roc<-cbind(truth, mean_predict3 )
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF3_all <- roc(results_roc$truth,results_roc$mean_predict3,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+
+When mtry = 6, AUC = 0.777(0.757, 0.798)
+
+remove variables with negative importance mtry 16
+```{r}
+colnames(random_forest_data)
+random_forest_data_mtry16<-select(random_forest_data, -pead_sepsis_factors___5,-paed_sepsis_indicator___3, -pead_sepsis_factors___3, -moderate_illness_feature___5 , -moderate_illness_feature___6, -paed_sepsis_indicator___1, -paed_sepsis_indicator___9, -moderate_illness_feature___9)
+
+random_forest_data_mtry16<-select(random_forest_data_mtry16, severe_illness_feature___5, pead_sepsis_factors___1, severe_illness_feature___6, moderate_illness_feature___7,  paed_sepsis_indicator___6, moderate_illness_feature___4, severe_illness_feature___8,  pead_sepsis_factors___4, severe_illness_feature___1, pead_sepsis_factors___6,  paed_sepsis_indicator___4, paed_sepsis_indicator___5, severe_illness_feature___2,   severe_illness_feature___7, paed_sepsis_indicator___2, severe_illness_feature___3,  paed_sepsis_indicator___8, moderate_illness_feature___2, moderate_illness_feature___3,  paed_sepsis_indicator___7,  pead_sepsis_factors___2,  moderate_illness_feature___1,  severe_illness_feature___4,    moderate_illness_feature___8, Pop_B)
+
+write_csv(random_forest_data_mtry16, "random_forest_data_mtry16.csv")
+
+start = 1
+stop = 7
+
+random_forest_sub_check<-select(random_forest_data_mtry16, start:stop, Pop_B)
+```
+
+
+
+read in output of iterative models mtry 16
+```{r}
+OOB_error1<-readRDS("OOB_error3-1.rds")
+OOB_error2<-readRDS("OOB_error3-2.rds")
+OOB_error3<-readRDS("OOB_error3-3.rds")
+OOB_error4<-readRDS("OOB_error3-4.rds")
+OOB_error5<-readRDS("OOB_error3-5.rds")
+OOB_error6<-readRDS("OOB_error3-6.rds")
+OOB_error7<-readRDS("OOB_error3-7.rds")
+OOB_error8<-readRDS("OOB_error3-8.rds")
+OOB_error9<-readRDS("OOB_error3-9.rds")
+
+
+
+
+
+```
+
+```{r}
+OOB_error1<-unlist(OOB_error1)
+mean(OOB_error1)
+
+OOB_error2<-unlist(OOB_error2)
+mean(OOB_error2)
+
+OOB_error3<-unlist(OOB_error3)
+mean(OOB_error3)
+
+OOB_error4<-unlist(OOB_error4)
+mean(OOB_error4)
+
+OOB_error5<-unlist(OOB_error5)
+mean(OOB_error5)
+
+OOB_error6<-unlist(OOB_error6)
+mean(OOB_error6)
+
+OOB_error7<-unlist(OOB_error7)
+mean(OOB_error7)
+
+OOB_error8<-unlist(OOB_error8)
+mean(OOB_error8)
+
+OOB_error9<-unlist(OOB_error9)
+mean(OOB_error9)
+
+
+
+
+```
+```{r}
+
+results_rf1<-readRDS("results_rf2-1.rds")
+results_rf2<-readRDS("results_rf2-2.rds")
+results_rf3<-readRDS("results_rf2-3.rds")
+results_rf4<-readRDS("results_rf2-4.rds")
+results_rf5<-readRDS("results_rf2-5.rds")
+results_rf6<-readRDS("results_rf2-6.rds")
+results_rf7<-readRDS("results_rf2-7.rds")
+results_rf8<-readRDS("results_rf2-8.rds")
+results_rf9<-readRDS("results_rf2-9.rds")
+
+
+```
+
+```{r}
+results_rf1<-unlist(results_rf1)
+results_roc<-cbind(truth, results_rf1)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF1 <- roc(results_roc$truth,results_roc$results_rf1,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+```{r}
+results_rf2<-unlist(results_rf2)
+results_roc<-cbind(truth, results_rf2)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF2 <- roc(results_roc$truth,results_roc$results_rf2,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+
+```{r}
+results_rf3<-unlist(results_rf3)
+results_roc<-cbind(truth, results_rf3)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF3 <- roc(results_roc$truth,results_roc$results_rf3,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+
+```{r}
+results_rf4<-unlist(results_rf4)
+results_roc<-cbind(truth, results_rf4)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF4 <- roc(results_roc$truth,results_roc$results_rf4,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+
+```{r}
+results_rf5<-unlist(results_rf5)
+results_roc<-cbind(truth, results_rf5)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF5 <- roc(results_roc$truth,results_roc$results_rf5,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+
+```{r}
+results_rf6<-unlist(results_rf6)
+results_roc<-cbind(truth, results_rf6)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF6 <- roc(results_roc$truth,results_roc$results_rf6,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+
+```{r}
+results_rf7<-unlist(results_rf7)
+results_roc<-cbind(truth, results_rf7)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF7 <- roc(results_roc$truth,results_roc$results_rf7,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+
+```{r}
+results_rf8<-unlist(results_rf8)
+results_roc<-cbind(truth, results_rf8)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF8 <- roc(results_roc$truth,results_roc$results_rf8,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+
+```{r}
+results_rf9<-unlist(results_rf9)
+results_roc<-cbind(truth, results_rf9)
+results_roc<-as.data.frame(results_roc)
+
+library(pROC)
+roc_result_RF9 <- roc(results_roc$truth,results_roc$results_rf9,smoothed = TRUE,
+                     # arguments for ci
+                     ci=TRUE, ci.alpha=0.95, stratified=FALSE,
+                     # arguments for plot
+                     plot=TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE, grid=TRUE,
+                     print.auc=TRUE, show.thres=TRUE,  print.thres="best", print.thres.best.method="youden")
+
+```
+
+```{r}
+library(pROC)
+roc.test(roc_result_RF3_all, roc_result_RF9)
+```
